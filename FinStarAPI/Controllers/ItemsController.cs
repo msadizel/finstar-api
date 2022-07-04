@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using FinStarEntity.Models;
+using AutoMapper;
 
 namespace FinStarAPI.Controllers
 {
@@ -14,99 +15,58 @@ namespace FinStarAPI.Controllers
     public class ItemsController : ControllerBase
     {
         private readonly FinStarContext _context;
+        private readonly IMapper _mapper;
 
-        public ItemsController(FinStarContext context)
+        public ItemsController(IMapper mapper, FinStarContext context)
         {
+            _mapper = mapper;
             _context = context;
         }
 
         // GET: api/Items
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Items>>> GetItems()
+        public async Task<ActionResult<IEnumerable<DTO.Items>>> GetItems([FromQuery] Filter.ItemFilter filter)
         {
             if (_context.Items == null)
             {
                 return NotFound();
             }
-            return await _context.Items.ToListAsync();
+            if (filter.Page <= 0)
+            { filter.Page = 1; }
+
+            return Ok(_mapper.Map<IEnumerable<DTO.Items>>
+                (
+                await _context.Items
+                .AsNoTracking()
+                .Skip((filter.Page - 1) * filter.Limit)
+                .Take(filter.Limit)
+                .ToListAsync())
+                );
         }
 
-        // GET: api/Items/5
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Items>> GetItems(int id)
-        {
-            if (_context.Items == null)
-            {
-                return NotFound();
-            }
-            var items = await _context.Items.FindAsync(id);
-
-            if (items == null)
-            {
-                return NotFound();
-            }
-
-            return items;
-        }
-
-        // PUT: api/Items/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPut("{id}")]
-        public async Task<IActionResult> PutItems(int id, Items items)
-        {
-            if (id != items.ID)
-            {
-                return BadRequest();
-            }
-
-            _context.Entry(items).State = EntityState.Modified;
-
-            try
-            {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!ItemsExists(id))
-                {
-                    return NotFound();
-                }
-                else
-                {
-                    throw;
-                }
-            }
-
-            return NoContent();
-        }
-
-        // POST: api/Items
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
-        [HttpPost]
-        public async Task<ActionResult<Items>> PostItems(Items items)
-        {
-            if (_context.Items == null)
-            {
-                return Problem("Entity set 'FinStarContext.Items'  is null.");
-            }
-            _context.Items.Add(items);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction("GetItems", new { id = items.ID }, items);
-        }
 
         // POST: api/Items
         // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
         [Route("Array")]
-        public async Task<ActionResult<IEnumerable<Items>>> PostItems(IEnumerable<Items> items)
+        public async Task<ActionResult<IEnumerable<Items>>> PostItems(IEnumerable<DTO.InputItems> _items)
         {
             if (_context.Items == null)
             {
                 return Problem("Entity set 'FinStarContext.Items'  is null.");
             }
 
-            _context.Items.FromSqlInterpolated($"TRUNCATE TABLE [Items]");
+            _context.Database.ExecuteSqlInterpolated($"TRUNCATE TABLE [Items]");
+
+            var items = _mapper.Map<List<Items>>(_items);
+
+            items.OrderBy(x => x.ID);
+
+            int i = 1;
+            items.ForEach(x =>
+            {
+                x.Number = i; i++;
+            });
 
             _context.Items.AddRange(items);
             await _context.SaveChangesAsync();
@@ -114,29 +74,26 @@ namespace FinStarAPI.Controllers
             return CreatedAtAction("GetItems", items);
         }
 
-        // DELETE: api/Items/5
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteItems(int id)
+        [HttpPost]
+        [Route("fill")]
+        public void Fill(int count)
         {
-            if (_context.Items == null)
-            {
-                return NotFound();
-            }
-            var items = await _context.Items.FindAsync(id);
-            if (items == null)
-            {
-                return NotFound();
-            }
+            _context.Database.ExecuteSqlInterpolated($"TRUNCATE TABLE [Items]");
 
-            _context.Items.Remove(items);
-            await _context.SaveChangesAsync();
 
-            return NoContent();
+            for (int i = 0; i < count; i++)
+            {
+                _context.Items.Add(new Items(0, "value" + i, i));
+            }
+            _context.SaveChanges();
         }
 
-        private bool ItemsExists(int id)
+        [HttpGet]
+        [Route("Pages")]
+        public int Pages([FromQuery] Filter.ItemFilter filter)
         {
-            return (_context.Items?.Any(e => e.ID == id)).GetValueOrDefault();
+            var pages = _context.Items.AsNoTracking().ToArray().Count() / filter.Limit;
+            return pages > 0 ? pages : 1;
         }
     }
 }

@@ -8,11 +8,13 @@ namespace FinStarEntity.Models
     {
         public FinStarContext()
         {
+            Database.EnsureCreated();
         }
         [ActivatorUtilitiesConstructor]
         public FinStarContext(DbContextOptions<FinStarContext> options)
             : base(options)
         {
+            Database.EnsureCreated();
         }
 
         public DbSet<Items> Items { get; set; }
